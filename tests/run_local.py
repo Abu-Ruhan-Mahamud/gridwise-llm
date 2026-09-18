@@ -26,9 +26,7 @@ from app.schemas import BatterySpec, HourInput  # noqa: E402
 from app.validator import validate_plan  # noqa: E402
 
 DEFAULT_PACK = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "..",
-    "BUP_CSE_FEST_2026_Preli_Public_Sample_Cases.json",
+    os.path.dirname(os.path.abspath(__file__)), "public_sample_cases.json"
 )
 TOL = 0.01
 

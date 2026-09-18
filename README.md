@@ -39,6 +39,33 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Service is then on `http://localhost:8000`.
 
+### Verify in two commands
+
+```bash
+# 1. readiness
+curl -s http://localhost:8000/health
+# expected: {"status":"ok"}
+
+# 2. a real public sample case end to end
+python tests/run_local.py
+```
+
+`tests/run_local.py` posts all ten organizer-supplied public sample cases to the
+running pipeline and prints a table. Expected result: **10/10 cases**, contract
+`ok` on every row, plans `valid`, and `+0.0%` cost gap against the published
+reference optimum:
+
+```
+case        contract   interpretation   base/with-directives   cost vs reference
+SAMPLE-01   ok         2/2              valid/valid            38,365 vs 38,365 (+0.0%)
+SAMPLE-02   ok         1/1              valid/valid            42,885 vs 42,885 (+0.0%)
+...
+SAMPLE-10   ok         3/3              valid/valid            41,620 vs 41,620 (+0.0%)
+```
+
+The sample pack ships in the repository at `tests/public_sample_cases.json`, so
+no download or extra setup is needed.
+
 ### Environment variables
 
 | Variable | Required | Default | Purpose |
@@ -334,6 +361,42 @@ docker run --rm -p 8000:8000 -e GROQ_API_KEY=... gridwise-llm:local
 needed). Full pins in `requirements.txt`.
 
 ---
+
+## Secret handling
+
+- No key, token or credential is committed. `.env` is gitignored; `.env.example`
+  documents variable **names** only.
+- Keys are read from environment variables at runtime. Nothing in `app/` reads a
+  file for credentials.
+- Keys are never logged. Provider failures log the HTTP status and exception type
+  only, never request headers (which carry the key) or response bodies (which can
+  echo prompt content).
+- API responses never contain provider errors, prompts, or stack traces. Any
+  unhandled exception returns `{"error": "internal_error", ...}` with no detail.
+- The Docker image bakes in no secrets; keys are passed at `docker run` time.
+- Only the synthetic scenario data supplied in the request is used. The service
+  reads no external or live data source.
+
+## Credits
+
+Built by team Overfit & Overcaffeinated for BUP CSE Fest 2026.
+
+External dependencies, all used under their own licenses:
+
+| Tool | Role |
+|---|---|
+| [FastAPI](https://fastapi.tiangolo.com/) | HTTP framework |
+| [Uvicorn](https://www.uvicorn.org/) | ASGI server |
+| [Pydantic](https://docs.pydantic.dev/) | Request/response schema validation |
+| [httpx](https://www.python-httpx.org/) | Async HTTP client for LLM providers |
+| [PuLP](https://coin-or.github.io/pulp/) | Linear programming modelling |
+| [CBC](https://github.com/coin-or/Cbc) | MILP/LP solver, bundled with PuLP |
+| [Groq](https://groq.com/) | LLM inference provider (primary) |
+| [Google AI Studio](https://aistudio.google.com/) | LLM inference provider (fallback) |
+
+Claude (Anthropic) was used as an AI coding assistant during development.
+Architecture, the directive model, the guardrail policy, the LP formulation and
+the feasibility ladder are the team's own design decisions.
 
 ## Known limitations
 
