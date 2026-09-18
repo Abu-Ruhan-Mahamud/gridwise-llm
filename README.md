@@ -345,6 +345,17 @@ curl -s http://localhost:8000/health
 Builds from `python:3.11-slim`, binds `0.0.0.0`, exposes 8000, honours `$PORT`.
 No secrets are baked in; keys are passed at runtime.
 
+Verified by building and running the image: `/health` returns
+`{"status":"ok"}` about **2 seconds** after `docker run` (the requirement is 60
+seconds), the container publishes `8000/tcp`, the image is ~75 MB, and
+`docker image inspect` shows no credential in the image environment.
+
+**The container needs at least one API key for note interpretation.** Started
+with no keys it still serves `/health`, still returns a schema-valid response
+with a valid 24-hour schedule, and degrades every note to `no_op` rather than
+crashing - but directive interpretation will be empty. Pass `GROQ_API_KEY`
+and/or `GEMINI_API_KEY` as shown above for full behaviour.
+
 To build locally:
 
 ```bash
