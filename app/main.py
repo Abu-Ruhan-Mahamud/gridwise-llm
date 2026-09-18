@@ -131,10 +131,10 @@ def _describe(plan, directives: List[Dict[str, Any]], method: str) -> str:
     the model earns its place upstream in interpretation, not in this string."""
     charge_h = [p.hour for p in plan if p.battery_action == "charge"]
     discharge_h = [p.hour for p in plan if p.battery_action == "discharge"]
-    applied = sorted({d["directive_type"] for d in directives})
+    names = sorted({d["directive_type"] for d in directives})
     bits = []
-    if applied:
-        bits.append("Applied operator directives: " + ", ".join(applied) + ".")
+    if names:
+        bits.append("Applied operator directives: " + ", ".join(names) + ".")
     else:
         bits.append("No operator directive constrained this schedule.")
     bits.append("On-site solar is consumed first each hour, up to its effective availability.")
@@ -145,7 +145,12 @@ def _describe(plan, directives: List[Dict[str, Any]], method: str) -> str:
         )
     else:
         bits.append("The battery idles for the full horizon and ends at its starting energy.")
-    if method != "lp":
+    if method.startswith("lp_dropped_"):
+        bits.append(
+            f"({method.rsplit('_', 1)[1]} directive(s) could not be satisfied together with "
+            "the rest and were not applied.)"
+        )
+    elif method != "lp":
         bits.append(f"(Schedule produced by the {method} fallback path.)")
     return " ".join(bits)
 
@@ -163,7 +168,10 @@ async def optimize_energy(req: OptimizeRequest):
     if not meta["llm_ok"]:
         log.error("interpretation degraded to all-no_op: %s", meta.get("error"))
 
-    plan, method = solve_schedule(hours, req.battery, active)
+    plan, method, applied = solve_schedule(hours, req.battery, active)
+    if len(applied) != len(active):
+        dropped = [d["directive_type"] for d in active if d not in applied]
+        log.error("could not satisfy every directive; not applied: %s", dropped)
     total_grid, total_cost, peak_grid = summarize(plan, hours)
 
     # Section 08 final replay, at the API boundary. solve_schedule already
@@ -173,7 +181,7 @@ async def optimize_energy(req: OptimizeRequest):
         hours,
         req.battery,
         plan,
-        active,
+        applied,
         {"total_grid_kwh": total_grid, "total_cost_bdt": total_cost, "peak_grid_kwh": peak_grid},
     )
     if residual:
@@ -186,5 +194,5 @@ async def optimize_energy(req: OptimizeRequest):
         total_grid_kwh=total_grid,
         total_cost_bdt=total_cost,
         peak_grid_kwh=peak_grid,
-        plan_summary=_describe(plan, active, method),
+        plan_summary=_describe(plan, applied, method),
     )

@@ -37,7 +37,7 @@ def main() -> int:
         directives = [e for e in exp["directive_interpretation"] if e.get("applies")]
 
         t0 = time.perf_counter()
-        plan, method = solve_schedule(hours, battery, directives)
+        plan, method, _applied = solve_schedule(hours, battery, directives)
         ms = (time.perf_counter() - t0) * 1000
 
         tariff = {h.hour: h.tariff_bdt_per_kwh for h in hours}

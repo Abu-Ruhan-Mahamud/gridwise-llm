@@ -26,6 +26,7 @@ ladder if the solver cannot produce a valid one.
 from __future__ import annotations
 
 import logging
+from itertools import combinations
 from typing import Any, Dict, List, Sequence, Tuple
 
 import pulp
@@ -142,34 +143,39 @@ def solve_schedule(
     hours: Sequence[Any],
     battery: Any,
     directives: Sequence[Dict[str, Any]],
-) -> Tuple[List[HourPlan], str]:
-    """Return (plan, method). Never raises; always returns a usable schedule.
+) -> Tuple[List[HourPlan], str, List[Dict[str, Any]]]:
+    """Return (plan, method, directives actually applied). Never raises.
 
-    Ladder, in order of how much we would rather not use it:
-      lp                 - optimal under every directive. The expected path.
-      lp_no_directives   - directives made the model infeasible or invalid.
-                           Scores 0 on that case's directive application, but a
-                           valid response beats a 500.
-      baseline           - solver unavailable entirely.
+    Organizer scoring scenarios are guaranteed feasible (Section 5.1), so if
+    the full directive set has no solution the most likely cause is one of OUR
+    extractions being wrong - a misread cap or reserve. Dropping every
+    directive in response would throw away the ones we got right: in testing,
+    an impossible grid cap also discarded a perfectly satisfiable
+    solar_reduction and produced a plan that burned solar it did not have.
+
+    So the ladder maximises how many directives survive: try all of them, then
+    every subset of size n-1, then n-2, and so on. With at most three notes
+    that is at most eight LP solves at ~4 ms each.
     """
+    n = len(directives)
     try:
-        plan = _solve_lp(hours, battery, directives)
-        if plan is not None:
-            viol = validate_plan(hours, battery, plan, directives)
-            if not viol:
-                return plan, "lp"
-            log.error("LP produced an invalid plan, falling back: %s", viol[:3])
+        for keep in range(n, -1, -1):
+            for subset in combinations(range(n), keep):
+                subs = [directives[i] for i in subset]
+                plan = _solve_lp(hours, battery, subs)
+                if plan is None:
+                    continue
+                if validate_plan(hours, battery, plan, subs):
+                    continue
+                if keep == n:
+                    return plan, "lp", subs
+                dropped = n - keep
+                log.warning(
+                    "infeasible with all %s directives; dropped %s to stay feasible", n, dropped
+                )
+                return plan, f"lp_dropped_{dropped}", subs
     except Exception:  # noqa: BLE001 - Section 08 SAFE FAILURE
         log.exception("LP solve failed")
 
-    if directives:
-        try:
-            plan = _solve_lp(hours, battery, [])
-            if plan is not None and not validate_plan(hours, battery, plan, []):
-                log.warning("falling back to directive-free LP")
-                return plan, "lp_no_directives"
-        except Exception:  # noqa: BLE001
-            log.exception("directive-free LP failed")
-
     log.warning("falling back to grid-only baseline")
-    return build_grid_only_plan(list(hours), battery), "baseline"
+    return build_grid_only_plan(list(hours), battery), "baseline", []
