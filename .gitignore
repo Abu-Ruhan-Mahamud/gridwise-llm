@@ -24,3 +24,6 @@ Thumbs.db
 
 # local artifacts
 *.log
+
+# local push credential (never committed)
+.gh_token
