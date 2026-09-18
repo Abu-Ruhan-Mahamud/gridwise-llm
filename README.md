@@ -268,13 +268,22 @@ service's own gate and as the local test oracle.
 ```bash
 python tests/test_guardrails.py    # 15 adversarial cases, no API key needed
 python tests/test_optimizer.py     # optimizer vs reference optima, no API key needed
-python tests/run_local.py          # full pipeline, needs a key
+python tests/run_local.py          # full pipeline over the public pack, needs a key
+python tests/test_paraphrase.py    # 10 unseen paraphrase cases, needs a key
 ```
 
-Current results against the public sample pack: 10/10 cases, 18/18 notes
-interpreted correctly, every plan valid under replay, 0.00% cost gap against
-the published reference optimum on all ten. The public cases are not the hidden
-judge set.
+Current results:
+
+- **Public sample pack** - 10/10 cases, 18/18 notes interpreted correctly, every
+  plan valid under replay, 0.00% cost gap against the published reference
+  optimum on all ten.
+- **Paraphrase stress set** - 10/10, using wording written independently of the
+  public pack: words instead of digits, both solar phrasing directions, reserve
+  as a percentage and as absolute kWh, window synonyms, distractors in first and
+  middle position, single-hour and midnight-crossing windows.
+
+The public cases are not the hidden judge set, and the stress set is our own
+guess at how hidden notes vary.
 
 ---
 

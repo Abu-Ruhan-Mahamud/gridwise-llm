@@ -50,7 +50,12 @@ max_grid_window {"hours":[..],"max_grid_kwh":n} | no_op null
 applies=true for all five real types. applies=false ONLY for no_op, which always has null.
 
 HOURS: unique ints 0-23 ascending. Start included, END EXCLUDED.
-"1 PM to 3 PM"=[13,14] | "09:00 until 12:00"=[9,10,11] | "between 5 and 7 tonight"=[17,18]
+Method: convert BOTH endpoints to the 24-hour clock first, then list every hour
+from start up to but not including end.
+"1 PM to 3 PM" -> 13,15 -> [13,14]
+"10 AM to 1 PM" -> 10,13 -> [10,11,12]     (crossing noon: do not stop at 11)
+"09:00 until 12:00" -> 9,12 -> [9,10,11]
+"between 5 and 7 tonight" -> 17,19 -> [17,18]
 noon=12, midnight=0. "during the 2 PM hour"=[14].
 
 FACTOR = FRACTION REMAINING, never the loss. Decide which the note states:
