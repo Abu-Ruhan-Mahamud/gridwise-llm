@@ -22,6 +22,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .baseline import summarize
+from .interpreter import interpret
+from .llm import providers_configured
 from .optimizer import solve_schedule
 from .schemas import DirectiveInterpretation, OptimizeRequest, OptimizeResponse
 from .validator import validate_plan
@@ -32,7 +34,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("gridwise")
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 
 
 # --------------------------------------------------------------------------
@@ -118,6 +120,8 @@ async def root():
         "service": "gridwise-llm",
         "version": APP_VERSION,
         "endpoints": {"health": "GET /health", "optimize": "POST /optimize-energy"},
+        # Provider and model identifiers only - never key material.
+        "llm": providers_configured(),
     }
 
 
@@ -150,24 +154,14 @@ def _describe(plan, directives: List[Dict[str, Any]], method: str) -> str:
 async def optimize_energy(req: OptimizeRequest):
     hours = req.hours_in_order()
 
-    # --- STAGE 5 PLACEHOLDER ------------------------------------------------
-    # The LLM interpreter and guardrail layer replace this block. Until then
-    # every note is reported no_op, which is schema-valid but scores 0 on
-    # interpretation. MUST NOT SURVIVE TO SUBMISSION.
-    interpretation = [
-        DirectiveInterpretation(
-            note_index=i,
-            applies=False,
-            directive_type="no_op",
-            structured_adjustment=None,
-            explanation="Interpreter not yet wired; placeholder response.",
-        )
-        for i in range(len(req.operator_notes))
-    ]
+    # --- Stage 1: LLM interpretation, then Stage 2: deterministic guardrails
+    entries, meta = await interpret(req.operator_notes, req.battery.capacity_kwh)
+    interpretation = [DirectiveInterpretation(**e) for e in entries]
     active: List[Dict[str, Any]] = [
-        e.model_dump() for e in interpretation if e.applies and e.directive_type != "no_op"
+        e for e in entries if e["applies"] and e["directive_type"] != "no_op"
     ]
-    # --- END PLACEHOLDER ----------------------------------------------------
+    if not meta["llm_ok"]:
+        log.error("interpretation degraded to all-no_op: %s", meta.get("error"))
 
     plan, method = solve_schedule(hours, req.battery, active)
     total_grid, total_cost, peak_grid = summarize(plan, hours)
