@@ -98,10 +98,14 @@ Default chain, in order:
 |---|---|---|---|
 | 1 | Groq | `openai/gpt-oss-120b` | 8,000 tokens/min, 1,000 req/day |
 | 2 | Groq | `openai/gpt-oss-20b` | 8,000 tokens/min, 1,000 req/day |
-| 3 | Groq | `qwen/qwen3.8-27b` | 8,000 tokens/min, 1,000 req/day |
-| 4 | Groq | `openai/gpt-oss-safeguard-20b` | 8,000 tokens/min, 1,000 req/day |
-| 5 | Google | `gemini-3.1-flash-lite` | separate daily bucket |
-| 6 | Google | `gemini-3.6-flash` | 20 req/day |
+| 3 | Google | `gemini-3.1-flash-lite` | separate daily bucket |
+| 4 | Google | `gemini-3.6-flash` | 20 req/day |
+
+The chain is deliberately short. Two further Groq models were trialled for
+token headroom and rejected: one read "7 PM to 9 PM" as `[19,20,21]` and the
+other missed "bar discharging" as a prohibition. A fallback link is reached
+precisely when the better models are throttled, so an inaccurate one trades
+interpretation points for latency points at a bad rate.
 
 Free-tier quota is metered per model, so the chain is four independent buckets,
 not one. A 429 steps to the next link rather than retrying an exhausted one.
@@ -457,5 +461,8 @@ the feasibility ladder are the team's own design decisions.
   ("from one until three") resolved to night hours on 2 of 3 runs before the
   prompt was given an explicit daytime rule. Suites are therefore run with a
   cold cache, since a warm cache hides this.
+- **Prohibition verbs are covered generically** (do not, cannot, must not,
+  avoid, bar, suspend, halt, cease, prohibit, block, lock out) rather than by
+  listing phrases, since hidden notes paraphrase.
 - Equal-cost schedules are not unique. The solver returns one optimal schedule;
   a different valid schedule at the same cost is equally correct.

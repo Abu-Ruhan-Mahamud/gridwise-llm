@@ -76,6 +76,11 @@ falls BY 70% -> 0.30 | "cut by four fifths" -> 0.20
 RESERVE: always absolute kWh. "at least 140 kWh" -> 140. "40% of capacity" ->
 0.40 x the capacity given below.
 
+PROHIBITION VERBS. Any verb that forbids an action makes the matching window
+directive, never no_op: do not / don't / cannot / must not / no X permitted /
+avoid / bar / barred / suspend / halt / cease / prohibit / block / lock out.
+"Bar discharging 9 PM to 11 PM" is no_discharge_window hours [21,22].
+
 SYNONYMS, same directive. For words like isolated, offline, unavailable,
 disabled, out of service: WHAT is isolated decides the directive, not the word.
 no_charge_window: the CHARGER or charging is isolated/offline/unavailable/disabled;

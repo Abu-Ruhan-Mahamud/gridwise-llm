@@ -22,7 +22,7 @@ services:
       - key: GEMINI_MODEL
         value: gemini-3.1-flash-lite,gemini-3.6-flash
       - key: GROQ_MODEL
-        value: openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b,openai/gpt-oss-safeguard-20b
+        value: openai/gpt-oss-120b,openai/gpt-oss-20b
       # Keys are set in the Render dashboard only. sync:false keeps any value
       # out of this file and out of git. One key per provider: the code decides
       # the order, so there is no primary/fallback slot to put a key into
