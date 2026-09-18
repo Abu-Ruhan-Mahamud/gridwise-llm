@@ -1,0 +1,25 @@
+# secrets - NEVER commit
+.env
+.env.*
+*.key
+*.pem
+secrets/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# local artifacts
+*.log
