@@ -98,8 +98,10 @@ Default chain, in order:
 |---|---|---|---|
 | 1 | Groq | `openai/gpt-oss-120b` | 8,000 tokens/min, 1,000 req/day |
 | 2 | Groq | `openai/gpt-oss-20b` | 8,000 tokens/min, 1,000 req/day |
-| 3 | Google | `gemini-3.1-flash-lite` | separate daily bucket |
-| 4 | Google | `gemini-3.6-flash` | 20 req/day |
+| 3 | Groq | `qwen/qwen3.8-27b` | 8,000 tokens/min, 1,000 req/day |
+| 4 | Groq | `openai/gpt-oss-safeguard-20b` | 8,000 tokens/min, 1,000 req/day |
+| 5 | Google | `gemini-3.1-flash-lite` | separate daily bucket |
+| 6 | Google | `gemini-3.6-flash` | 20 req/day |
 
 Free-tier quota is metered per model, so the chain is four independent buckets,
 not one. A 429 steps to the next link rather than retrying an exhausted one.

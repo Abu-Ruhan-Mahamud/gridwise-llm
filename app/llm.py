@@ -60,10 +60,18 @@ def _providers() -> List[Provider]:
     several independent quota buckets rather than one. Measured on this
     account:
 
-        groq   openai/gpt-oss-120b     8,000 tok/min, 1,000 req/day
-        groq   openai/gpt-oss-20b      8,000 tok/min, 1,000 req/day
-        gemini gemini-3.1-flash-lite   separate daily bucket
-        gemini gemini-3.6-flash        20 req/day  <- last resort only
+        groq   openai/gpt-oss-120b          8,000 tok/min, 1,000 req/day
+        groq   openai/gpt-oss-20b           8,000 tok/min, 1,000 req/day
+        groq   qwen/qwen3.8-27b             8,000 tok/min, 1,000 req/day
+        groq   openai/gpt-oss-safeguard-20b 8,000 tok/min, 1,000 req/day
+        gemini gemini-3.1-flash-lite        separate daily bucket
+        gemini gemini-3.6-flash             20 req/day  <- last resort only
+
+    Six links, roughly 32k tokens/minute combined. Each added model was first
+    checked against the traps that actually broke this system tonight (the
+    'one until three' daytime reading, 'charger isolated', and an inverted
+    solar phrasing): a model that interprets badly would be worse than no
+    model, since it is reached exactly when the good ones are throttled.
 
     Groq leads on request budget by two orders of magnitude, so it goes first.
     Gemini trails as genuine redundancy: a Groq-wide outage or token-rate
@@ -80,7 +88,11 @@ def _providers() -> List[Provider]:
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
 
     if groq_key:
-        for model in _chain(os.getenv("GROQ_MODEL", "openai/gpt-oss-120b,openai/gpt-oss-20b")):
+        for model in _chain(os.getenv(
+                "GROQ_MODEL",
+                "openai/gpt-oss-120b,openai/gpt-oss-20b,"
+                "qwen/qwen3.8-27b,openai/gpt-oss-safeguard-20b",
+            )):
             out.append(Provider("groq", model, groq_key, attempts=2 if not out else 1))
     if gemini_key:
         for model in _chain(os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite,gemini-3.6-flash")):
