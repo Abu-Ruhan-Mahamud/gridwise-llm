@@ -17,3 +17,18 @@ services:
         value: https://gridwise-llm-vby1.onrender.com/health
       - key: KEEPALIVE_INTERVAL_SECONDS
         value: "600"
+      # Model identifiers are not secrets and live in version control.
+      - key: LLM_PROVIDER
+        value: groq
+      - key: LLM_MODEL
+        value: openai/gpt-oss-120b
+      - key: LLM_FALLBACK_PROVIDER
+        value: gemini
+      - key: LLM_FALLBACK_MODEL
+        value: gemini-2.5-flash
+      # Keys are set in the Render dashboard only. sync:false keeps any
+      # value out of this file and out of git.
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_FALLBACK_API_KEY
+        sync: false
