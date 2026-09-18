@@ -333,14 +333,28 @@ guess at how hidden notes vary.
 
 ## Docker
 
+Registry reference, by tag and by immutable digest:
+
+```
+ghcr.io/abu-ruhan-mahamud/gridwise-llm:latest
+ghcr.io/abu-ruhan-mahamud/gridwise-llm@sha256:4b67ce8789c355ebcddfbf6b3dba180ec144dfa577d438c81e554c2b7bb48bb9
+```
+
+Verified run command:
+
 ```bash
-docker pull ghcr.io/abu-ruhan-mahamud/gridwise-llm:latest
+docker pull ghcr.io/abu-ruhan-mahamud/gridwise-llm@sha256:4b67ce8789c355ebcddfbf6b3dba180ec144dfa577d438c81e554c2b7bb48bb9
+
 docker run --rm -p 8000:8000 \
   -e GROQ_API_KEY=your_groq_key \
   -e GEMINI_API_KEY=your_gemini_key \
   ghcr.io/abu-ruhan-mahamud/gridwise-llm:latest
+
 curl -s http://localhost:8000/health
+# {"status":"ok"}
 ```
+
+The digest pins one exact image; the `:latest` tag points at the same build.
 
 Builds from `python:3.11-slim`, binds `0.0.0.0`, exposes 8000, honours `$PORT`.
 No secrets are baked in; keys are passed at runtime.
