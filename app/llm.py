@@ -153,6 +153,11 @@ async def _call(p: Provider, system: str, user: str, timeout: float) -> str:
         payload = {
             "model": p.model,
             "temperature": 0,
+            # temperature 0 alone is not reproducible on these endpoints; a
+            # fixed seed materially reduces run-to-run variance on borderline
+            # notes. Ignored by providers that do not support it.
+            "seed": 20260918,
+            "top_p": 1,
             "max_tokens": MAX_OUTPUT_TOKENS,
             "response_format": {"type": "json_object"},
             "messages": [

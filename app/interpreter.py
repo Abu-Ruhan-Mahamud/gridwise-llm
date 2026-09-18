@@ -57,6 +57,12 @@ from start up to but not including end.
 "09:00 until 12:00" -> 9,12 -> [9,10,11]
 "between 5 and 7 tonight" -> 17,19 -> [17,18]
 noon=12, midnight=0. "during the 2 PM hour"=[14].
+Bare numbers with no am/pm: take the DAYTIME reading for anything about solar,
+panel or roof work, or daytime campus activity.
+"from one until three" -> 13,15 -> [13,14]   NOT [1,2]
+Solar output is zero overnight, so a night reading would make a solar note
+meaningless. Only read a bare number as a night hour when the note itself says
+night, overnight, or names an explicit am time.
 
 FACTOR = FRACTION REMAINING, never the loss. Decide which the note states:
 falls TO 30% -> 0.30 | "only a quarter of normal" -> 0.25

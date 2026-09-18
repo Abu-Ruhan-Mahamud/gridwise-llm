@@ -270,6 +270,7 @@ python tests/test_guardrails.py    # 15 adversarial cases, no API key needed
 python tests/test_optimizer.py     # optimizer vs reference optima, no API key needed
 python tests/run_local.py          # full pipeline over the public pack, needs a key
 python tests/test_paraphrase.py    # 10 unseen paraphrase cases, needs a key
+python tests/test_tricky.py        # 12 team-authored tricky cases, needs a key
 ```
 
 Current results:
@@ -282,7 +283,13 @@ Current results:
   as a percentage and as absolute kWh, window synonyms, distractors in first and
   middle position, single-hour and midnight-crossing windows.
 
-The public cases are not the hidden judge set, and the stress set is our own
+- **Tricky case set (X21-X32)** - 12/12. X30-feeder is infeasible by
+  construction (at h18/h19, demand minus solar minus max hourly discharge is
+  155/165 kWh, so no schedule can meet its 150 kWh cap); expected behaviour
+  there is correct extraction plus the feasibility ladder dropping the
+  directive, and that is what the suite asserts.
+
+The public cases are not the hidden judge set, and the stress sets are our own
 guess at how hidden notes vary.
 
 ---
@@ -336,5 +343,10 @@ needed). Full pins in `requirements.txt`.
 - **Free hosting sleeps when idle.** An external uptime pinger is the primary
   defence; the in-app self-ping is a second layer and cannot wake an instance
   that has already slept.
+- **LLM output is not perfectly reproducible.** Even at temperature 0 with a
+  fixed seed, borderline notes can vary between runs. One observed case
+  ("from one until three") resolved to night hours on 2 of 3 runs before the
+  prompt was given an explicit daytime rule. Suites are therefore run with a
+  cold cache, since a warm cache hides this.
 - Equal-cost schedules are not unique. The solver returns one optimal schedule;
   a different valid schedule at the same cost is equally correct.
