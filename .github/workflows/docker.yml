@@ -14,6 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # GHCR rejects any uppercase in a repository name, and GitHub usernames
+      # may contain capitals, so the owner is lowercased before it is used.
+      - id: vars
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -26,8 +31,14 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/gridwise-llm:latest
-            ghcr.io/${{ github.repository_owner }}/gridwise-llm:${{ github.sha }}
+            ghcr.io/${{ steps.vars.outputs.owner }}/gridwise-llm:latest
+            ghcr.io/${{ steps.vars.outputs.owner }}/gridwise-llm:${{ github.sha }}
 
       - name: Print the exact digest for the README
-        run: echo "ghcr.io/${{ github.repository_owner }}/gridwise-llm@${{ steps.build.outputs.digest }}"
+        run: |
+          echo "### Docker image published" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "ghcr.io/${{ steps.vars.outputs.owner }}/gridwise-llm:latest" >> "$GITHUB_STEP_SUMMARY"
+          echo "ghcr.io/${{ steps.vars.outputs.owner }}/gridwise-llm@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "ghcr.io/${{ steps.vars.outputs.owner }}/gridwise-llm@${{ steps.build.outputs.digest }}"
