@@ -13,3 +13,7 @@ services:
         value: 3.11.9
       - key: LOG_LEVEL
         value: INFO
+      - key: KEEPALIVE_URL
+        value: https://gridwise-llm-vby1.onrender.com/health
+      - key: KEEPALIVE_INTERVAL_SECONDS
+        value: "600"
