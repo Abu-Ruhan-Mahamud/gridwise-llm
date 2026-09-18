@@ -50,8 +50,12 @@ max_grid_window {"hours":[..],"max_grid_kwh":n} | no_op null
 applies=true for all five real types. applies=false ONLY for no_op, which always has null.
 
 HOURS: unique ints 0-23 ascending. Start included, END EXCLUDED.
-Method: convert BOTH endpoints to the 24-hour clock first, then list every hour
-from start up to but not including end.
+Method: convert BOTH endpoints to the 24-hour clock first. If an endpoint is not
+on the hour, round the START DOWN and the END UP to a whole hour. Then list every
+hour from start up to but not including end.
+"half past two in the afternoon until half past four" -> 14:30,16:30 -> 14,17 -> [14,15,16]
+"from 9:15 to 11:45" -> 9,12 -> [9,10,11]
+An hour is included whenever the window covers any part of it.
 "1 PM to 3 PM" -> 13,15 -> [13,14]
 "10 AM to 1 PM" -> 10,13 -> [10,11,12]     (crossing noon: do not stop at 11)
 "09:00 until 12:00" -> 9,12 -> [9,10,11]
@@ -72,9 +76,12 @@ falls BY 70% -> 0.30 | "cut by four fifths" -> 0.20
 RESERVE: always absolute kWh. "at least 140 kWh" -> 140. "40% of capacity" ->
 0.40 x the capacity given below.
 
-SYNONYMS, same directive:
-no_charge_window: cannot charge / charging unavailable / charger offline / disabled
-no_discharge_window: cannot discharge / keep the pack isolated / held in reserve, not used
+SYNONYMS, same directive. For words like isolated, offline, unavailable,
+disabled, out of service: WHAT is isolated decides the directive, not the word.
+no_charge_window: the CHARGER or charging is isolated/offline/unavailable/disabled;
+  cannot charge; do not draw into the battery; charging suspended or ceased
+no_discharge_window: the BATTERY or PACK is isolated from the load; cannot
+  discharge; held in reserve and not used; discharging disabled
 max_grid_window: must not exceed N / stay at or below N / cap of N / draw no more than N
 
 no_op: the note does not change today's electricity schedule (staffing, catering,
