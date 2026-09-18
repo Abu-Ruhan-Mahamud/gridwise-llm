@@ -337,13 +337,13 @@ Registry reference, by tag and by immutable digest:
 
 ```
 ghcr.io/abu-ruhan-mahamud/gridwise-llm:latest
-ghcr.io/abu-ruhan-mahamud/gridwise-llm@sha256:4b67ce8789c355ebcddfbf6b3dba180ec144dfa577d438c81e554c2b7bb48bb9
+ghcr.io/abu-ruhan-mahamud/gridwise-llm@sha256:71e1a3f11b7cebc4226b38736d38d7b8c97735c1c10726bbafa1355ce897a72c
 ```
 
 Verified run command:
 
 ```bash
-docker pull ghcr.io/abu-ruhan-mahamud/gridwise-llm@sha256:4b67ce8789c355ebcddfbf6b3dba180ec144dfa577d438c81e554c2b7bb48bb9
+docker pull ghcr.io/abu-ruhan-mahamud/gridwise-llm@sha256:71e1a3f11b7cebc4226b38736d38d7b8c97735c1c10726bbafa1355ce897a72c
 
 docker run --rm -p 8000:8000 \
   -e GROQ_API_KEY=your_groq_key \
@@ -354,7 +354,10 @@ curl -s http://localhost:8000/health
 # {"status":"ok"}
 ```
 
-The digest pins one exact image; the `:latest` tag points at the same build.
+The digest pins one exact image; `:latest` currently resolves to the same
+build. Verified by anonymous pull: the image downloads without credentials,
+`/health` returns `{"status":"ok"}` about 2 seconds after `docker run`, and
+`docker image inspect` shows no credential in the image environment.
 
 Builds from `python:3.11-slim`, binds `0.0.0.0`, exposes 8000, honours `$PORT`.
 No secrets are baked in; keys are passed at runtime.
