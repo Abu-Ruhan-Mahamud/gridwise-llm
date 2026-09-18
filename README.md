@@ -271,6 +271,7 @@ python tests/test_optimizer.py     # optimizer vs reference optima, no API key n
 python tests/run_local.py          # full pipeline over the public pack, needs a key
 python tests/test_paraphrase.py    # 10 unseen paraphrase cases, needs a key
 python tests/test_tricky.py        # 12 team-authored tricky cases, needs a key
+python tests/test_tricky_v2.py     # 20 adversarial trap cases, needs a key
 ```
 
 Current results:
@@ -288,6 +289,15 @@ Current results:
   155/165 kWh, so no schedule can meet its 150 kWh cap); expected behaviour
   there is correct extraction plus the feasibility ladder dropping the
   directive, and that is what the suite asserts.
+
+- **Tricky pack v2 (TRICKY-01..20)** - 20/20 on interpretation, covering double
+  negatives ("don't skip the charging routine" is no_op, not no_charge_window),
+  watt-hours to kilowatt-hours, non-contiguous windows in one note,
+  fractional-word reserves, vague magnitudes that must stay no_op, and keyword
+  decoys. 19/20 plans valid; TRICKY-14 combines three hard directives that
+  contradict each other (at h19, no_discharge plus a 160 kWh cap against 215 kWh
+  of demand and no solar), which Section 5.1 guarantees scoring scenarios will
+  not do.
 
 The public cases are not the hidden judge set, and the stress sets are our own
 guess at how hidden notes vary.
@@ -336,8 +346,14 @@ needed). Full pins in `requirements.txt`.
 - **`gemini-3.6-flash` allows only 20 requests/day** on the free tier and is
   positioned last for that reason.
 - **Overlapping `solar_reduction` directives multiply.** The specification does
-  not define the interaction; multiplication was chosen because it is
-  order-independent.
+  not define the interaction. Multiplication is the safe side of the trade: if
+  the judge instead applies each directive as its own constraint (equivalent to
+  taking the smallest factor), our schedule uses *less* solar than allowed,
+  which is valid but slightly more expensive. Taking the smallest factor while
+  the judge multiplied would use *more* solar than allowed and invalidate the
+  case outright. Validity outranks cost, so we accept the cost. Two notes
+  stating the same 30% reduction therefore yield 0.09, not 0.30 - visible in
+  TRICKY-03.
 - **Overlapping reserves take the maximum and overlapping grid caps take the
   minimum**, i.e. the tightest constraint wins. Also not specified.
 - **Free hosting sleeps when idle.** An external uptime pinger is the primary
