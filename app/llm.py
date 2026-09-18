@@ -49,19 +49,56 @@ class Provider:
         return bool(self.api_key and self.model)
 
 
+def _chain(raw: str) -> List[str]:
+    return [m.strip() for m in raw.split(",") if m.strip()]
+
+
 def _providers() -> List[Provider]:
-    out = []
+    """Resolve an ordered chain of (provider, model) links.
+
+    Free-tier quotas are metered PER MODEL, so naming several models builds
+    several independent quota buckets rather than one. Measured on this
+    account:
+
+        groq   openai/gpt-oss-120b     8,000 tok/min, 1,000 req/day
+        groq   openai/gpt-oss-20b      8,000 tok/min, 1,000 req/day
+        gemini gemini-3.1-flash-lite   separate daily bucket
+        gemini gemini-3.6-flash        20 req/day  <- last resort only
+
+    Groq leads on request budget by two orders of magnitude, so it goes first.
+    Gemini trails as genuine redundancy: a Groq-wide outage or token-rate
+    exhaustion still leaves a working path.
+
+    Keys are named per provider, so there is no primary/fallback slot to put a
+    key into wrongly. The legacy generic LLM_* scheme is honoured only when no
+    named key exists at all, so a stale dashboard variable can never override
+    a correctly named key.
+    """
+    out: List[Provider] = []
+
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+
+    if groq_key:
+        for model in _chain(os.getenv("GROQ_MODEL", "openai/gpt-oss-120b,openai/gpt-oss-20b")):
+            out.append(Provider("groq", model, groq_key, attempts=2 if not out else 1))
+    if gemini_key:
+        for model in _chain(os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite,gemini-3.6-flash")):
+            out.append(Provider("gemini", model, gemini_key, attempts=1))
+    if out:
+        return out
+
     primary = Provider(
-        name=os.getenv("LLM_PROVIDER", "gemini").strip().lower(),
-        model=os.getenv("LLM_MODEL", "gemini-3.6-flash").strip(),
+        name=os.getenv("LLM_PROVIDER", "groq").strip().lower(),
+        model=os.getenv("LLM_MODEL", "openai/gpt-oss-120b").strip(),
         api_key=os.getenv("LLM_API_KEY", "").strip(),
         attempts=2,
     )
     if primary.configured:
         out.append(primary)
     fallback = Provider(
-        name=os.getenv("LLM_FALLBACK_PROVIDER", "groq").strip().lower(),
-        model=os.getenv("LLM_FALLBACK_MODEL", "openai/gpt-oss-120b").strip(),
+        name=os.getenv("LLM_FALLBACK_PROVIDER", "gemini").strip().lower(),
+        model=os.getenv("LLM_FALLBACK_MODEL", "gemini-3.1-flash-lite").strip(),
         api_key=os.getenv("LLM_FALLBACK_API_KEY", "").strip(),
         attempts=1,
     )
@@ -113,20 +150,26 @@ async def _call(p: Provider, system: str, user: str, timeout: float) -> str:
         }.get(p.name)
         if not base:
             raise ValueError(f"unknown provider '{p.name}'")
+        payload = {
+            "model": p.model,
+            "temperature": 0,
+            "max_tokens": MAX_OUTPUT_TOKENS,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        }
+        if "gpt-oss" in p.model:
+            # Measured: default reasoning effort spends ~360 hidden tokens per
+            # call against an 8k/min budget. "low" cuts it to ~100 with no
+            # accuracy change on this task.
+            payload["reasoning_effort"] = "low"
         r = await _post(
             client,
             f"{base}/chat/completions",
             {"Authorization": f"Bearer {p.api_key}", "Content-Type": "application/json"},
-            {
-                "model": p.model,
-                "temperature": 0,
-                "max_tokens": MAX_OUTPUT_TOKENS,
-                "response_format": {"type": "json_object"},
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-            },
+            payload,
         )
         return r.json()["choices"][0]["message"]["content"]
 
@@ -165,8 +208,8 @@ async def complete_json(system: str, user: str, deadline: Optional[float] = None
                 # Status only. Bodies can echo prompt content and headers carry
                 # the key, so neither is logged.
                 log.warning("provider %s returned HTTP %s (attempt %s)", p.name, code, attempt)
-                if code not in RETRY_STATUS or attempt >= p.attempts:
-                    break
+                if code == 429 or code not in RETRY_STATUS or attempt >= p.attempts:
+                    break  # 429 here is a per-day quota; the next link has its own
                 await asyncio.sleep(min(_retry_after(exc, 1.5), max(0.0, deadline - time.monotonic() - 1)))
             except Exception as exc:  # noqa: BLE001
                 last = f"{p.name} {type(exc).__name__}"
