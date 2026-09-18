@@ -18,12 +18,22 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
+from collections import OrderedDict
 from typing import Any, Dict, List, Sequence, Tuple
 
 from .guardrails import enforce
-from .llm import LLMUnavailable, complete_json
+from .llm import TOTAL_BUDGET_S, LLMUnavailable, complete_json
 
 log = logging.getLogger("gridwise.interpreter")
+
+# Both providers have tight free-tier quotas, so an identical note set is
+# answered from memory rather than spending a request. Keyed on the exact notes
+# plus capacity (capacity changes a percentage-of-capacity reserve). Bounded so
+# a long judging run cannot grow it without limit. Process-local and derived
+# only from request data - no cross-scenario state, no persistence.
+_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
+_CACHE_MAX = 256
 
 SYSTEM_PROMPT = """You convert campus energy operator notes into structured directives.
 
@@ -168,7 +178,16 @@ async def interpret(
     Diagnostics are for our own logs and the local scoreboard. They are not
     part of the response schema and never carry key material.
     """
+    cache_key = (tuple(notes), float(capacity_kwh))
+    if cache_key in _CACHE:
+        entries, meta = _CACHE[cache_key]
+        _CACHE.move_to_end(cache_key)
+        return [dict(e) for e in entries], {**meta, "cached": True}
+
     meta: Dict[str, Any] = {"llm_ok": False, "attempts": 0, "repairs": [], "error": None}
+    # One deadline covers every provider and every retry, so a slow or
+    # rate-limited provider can never push us past the 30 s request limit.
+    deadline = time.monotonic() + TOTAL_BUDGET_S
     user = build_user_prompt(notes, capacity_kwh)
 
     messages_user = (
@@ -181,7 +200,7 @@ async def interpret(
     for attempt in (1, 2):
         meta["attempts"] = attempt
         try:
-            raw = await complete_json(SYSTEM_PROMPT, messages_user)
+            raw = await complete_json(SYSTEM_PROMPT, messages_user, deadline=deadline)
         except LLMUnavailable as exc:
             meta["error"] = str(exc)
             log.error("LLM unavailable: %s", exc)
@@ -200,6 +219,9 @@ async def interpret(
             entries, repairs = enforce(payload, len(notes), capacity_kwh)
             meta["llm_ok"] = True
             meta["repairs"] = repairs
+            _CACHE[cache_key] = ([dict(e) for e in entries], dict(meta))
+            if len(_CACHE) > _CACHE_MAX:
+                _CACHE.popitem(last=False)
             return entries, meta
 
         log.warning("attempt %s: model output was not parseable JSON", attempt)

@@ -1,16 +1,25 @@
-"""Provider-agnostic LLM client.
+"""Provider-agnostic LLM client with a hard time budget.
 
-Two providers on separate free quotas. A 429 or an outage on the primary is
-the single failure most likely to cost us a hidden case, so the secondary is
-tried automatically before we give up. Keys come from the environment only -
-never a file in the repo, never a log line, never the API response.
+Provider order matters. Measured free-tier limits:
+  Gemini (gemini-3.6-flash)  generous token budget -> PRIMARY
+  Groq   (openai/gpt-oss-120b)  8,000 tokens/minute, and gpt-oss spends extra
+         tokens on hidden reasoning, so a prompt of this size exhausts the
+         minute in ~4 calls -> FALLBACK only
+
+Two providers on separate quotas means a 429 on one does not cost us a case.
+Everything is bounded by a deadline so the 30 s per-request limit cannot be
+blown by retries.
+
+Keys come from the environment only. They are never logged, never echoed in a
+response, and never written to disk by this module.
 """
 
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -18,7 +27,10 @@ import httpx
 
 log = logging.getLogger("gridwise.llm")
 
-DEFAULT_TIMEOUT_S = float(os.getenv("LLM_TIMEOUT_SECONDS", "12"))
+PER_CALL_TIMEOUT_S = float(os.getenv("LLM_TIMEOUT_SECONDS", "8"))
+TOTAL_BUDGET_S = float(os.getenv("LLM_BUDGET_SECONDS", "20"))
+MAX_OUTPUT_TOKENS = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "1200"))
+RETRY_STATUS = {408, 409, 429, 500, 502, 503, 504}
 
 
 class LLMUnavailable(RuntimeError):
@@ -30,6 +42,7 @@ class Provider:
     name: str
     model: str
     api_key: str
+    attempts: int
 
     @property
     def configured(self) -> bool:
@@ -39,16 +52,18 @@ class Provider:
 def _providers() -> List[Provider]:
     out = []
     primary = Provider(
-        name=os.getenv("LLM_PROVIDER", "groq").strip().lower(),
-        model=os.getenv("LLM_MODEL", "openai/gpt-oss-120b").strip(),
+        name=os.getenv("LLM_PROVIDER", "gemini").strip().lower(),
+        model=os.getenv("LLM_MODEL", "gemini-3.6-flash").strip(),
         api_key=os.getenv("LLM_API_KEY", "").strip(),
+        attempts=2,
     )
     if primary.configured:
         out.append(primary)
     fallback = Provider(
-        name=os.getenv("LLM_FALLBACK_PROVIDER", "gemini").strip().lower(),
-        model=os.getenv("LLM_FALLBACK_MODEL", "gemini-2.5-flash").strip(),
+        name=os.getenv("LLM_FALLBACK_PROVIDER", "groq").strip().lower(),
+        model=os.getenv("LLM_FALLBACK_MODEL", "openai/gpt-oss-120b").strip(),
         api_key=os.getenv("LLM_FALLBACK_API_KEY", "").strip(),
+        attempts=1,
     )
     if fallback.configured:
         out.append(fallback)
@@ -56,20 +71,56 @@ def _providers() -> List[Provider]:
 
 
 def providers_configured() -> List[str]:
-    """Names only - used by /health-style introspection. Never returns keys."""
+    """Names only - safe to expose. Never returns key material."""
     return [f"{p.name}:{p.model}" for p in _providers()]
 
 
-async def _call_openai_compatible(
-    p: Provider, base_url: str, system: str, user: str, timeout: float
-) -> str:
+async def _post(client: httpx.AsyncClient, url: str, headers: dict, payload: dict) -> httpx.Response:
+    r = await client.post(url, headers=headers, json=payload)
+    r.raise_for_status()
+    return r
+
+
+async def _call(p: Provider, system: str, user: str, timeout: float) -> str:
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(
-            f"{base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {p.api_key}", "Content-Type": "application/json"},
-            json={
+        if p.name in ("gemini", "google"):
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{p.model}:generateContent"
+            r = await _post(
+                client,
+                url,
+                {"x-goog-api-key": p.api_key, "Content-Type": "application/json"},
+                {
+                    "systemInstruction": {"parts": [{"text": system}]},
+                    "contents": [{"role": "user", "parts": [{"text": user}]}],
+                    "generationConfig": {
+                        "temperature": 0,
+                        "responseMimeType": "application/json",
+                        "maxOutputTokens": MAX_OUTPUT_TOKENS,
+                        # Measured: extended thinking costs 6-11 s per call on
+                        # this model and buys nothing on a bounded extraction
+                        # task. Disabling it takes the call to ~2 s, which is
+                        # most of our margin against the 30 s limit.
+                        "thinkingConfig": {"thinkingBudget": 0},
+                    },
+                },
+            )
+            parts = r.json()["candidates"][0]["content"]["parts"]
+            return "".join(part.get("text", "") for part in parts)
+
+        base = {
+            "groq": "https://api.groq.com/openai/v1",
+            "openai": "https://api.openai.com/v1",
+        }.get(p.name)
+        if not base:
+            raise ValueError(f"unknown provider '{p.name}'")
+        r = await _post(
+            client,
+            f"{base}/chat/completions",
+            {"Authorization": f"Bearer {p.api_key}", "Content-Type": "application/json"},
+            {
                 "model": p.model,
                 "temperature": 0,
+                "max_tokens": MAX_OUTPUT_TOKENS,
                 "response_format": {"type": "json_object"},
                 "messages": [
                     {"role": "system", "content": system},
@@ -77,61 +128,51 @@ async def _call_openai_compatible(
                 ],
             },
         )
-        r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"]
 
 
-async def _call_gemini(p: Provider, system: str, user: str, timeout: float) -> str:
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/{p.model}:generateContent"
-    )
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(
-            url,
-            headers={"x-goog-api-key": p.api_key, "Content-Type": "application/json"},
-            json={
-                "systemInstruction": {"parts": [{"text": system}]},
-                "contents": [{"role": "user", "parts": [{"text": user}]}],
-                "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
-            },
-        )
-        r.raise_for_status()
-        body = r.json()
-        return body["candidates"][0]["content"]["parts"][0]["text"]
+def _retry_after(exc: httpx.HTTPStatusError, default: float) -> float:
+    raw = exc.response.headers.get("retry-after")
+    try:
+        return max(0.0, min(float(raw), 5.0))
+    except (TypeError, ValueError):
+        return default
 
 
-async def complete_json(system: str, user: str, timeout: Optional[float] = None) -> str:
-    """Return raw model text (expected to be JSON). Tries each provider in turn.
+async def complete_json(system: str, user: str, deadline: Optional[float] = None) -> str:
+    """Return raw model text. Tries each provider, respecting a wall-clock deadline.
 
-    Raises LLMUnavailable only when every provider failed; the caller turns
-    that into a safe all-no_op interpretation rather than a 500.
+    Raises LLMUnavailable only when everything failed or the budget ran out;
+    the caller turns that into a safe all-no_op interpretation, never a 500.
     """
-    timeout = timeout or DEFAULT_TIMEOUT_S
+    deadline = deadline or (time.monotonic() + TOTAL_BUDGET_S)
     provs = _providers()
     if not provs:
         raise LLMUnavailable("no LLM provider configured (set LLM_API_KEY)")
 
-    last = None
+    last = "none"
     for p in provs:
-        try:
-            if p.name in ("groq",):
-                return await _call_openai_compatible(
-                    p, "https://api.groq.com/openai/v1", system, user, timeout
-                )
-            if p.name in ("openai",):
-                return await _call_openai_compatible(
-                    p, "https://api.openai.com/v1", system, user, timeout
-                )
-            if p.name in ("gemini", "google"):
-                return await _call_gemini(p, system, user, timeout)
-            log.error("unknown LLM_PROVIDER '%s'", p.name)
-        except httpx.HTTPStatusError as exc:
-            # Status only. The body can echo prompt content; the key is in the
-            # request headers. Neither goes to the log.
-            last = exc
-            log.warning("provider %s returned HTTP %s", p.name, exc.response.status_code)
-        except Exception as exc:  # noqa: BLE001
-            last = exc
-            log.warning("provider %s failed: %s", p.name, type(exc).__name__)
+        for attempt in range(1, p.attempts + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 1.0:
+                log.warning("LLM budget exhausted before %s", p.name)
+                raise LLMUnavailable(f"budget exhausted (last: {last})")
+            try:
+                return await _call(p, system, user, min(PER_CALL_TIMEOUT_S, remaining))
+            except httpx.HTTPStatusError as exc:
+                code = exc.response.status_code
+                last = f"{p.name} HTTP {code}"
+                # Status only. Bodies can echo prompt content and headers carry
+                # the key, so neither is logged.
+                log.warning("provider %s returned HTTP %s (attempt %s)", p.name, code, attempt)
+                if code not in RETRY_STATUS or attempt >= p.attempts:
+                    break
+                await asyncio.sleep(min(_retry_after(exc, 1.5), max(0.0, deadline - time.monotonic() - 1)))
+            except Exception as exc:  # noqa: BLE001
+                last = f"{p.name} {type(exc).__name__}"
+                log.warning("provider %s failed: %s (attempt %s)", p.name, type(exc).__name__, attempt)
+                if attempt >= p.attempts:
+                    break
+                await asyncio.sleep(0.5)
 
-    raise LLMUnavailable(f"all providers failed ({type(last).__name__ if last else 'none'})")
+    raise LLMUnavailable(f"all providers failed (last: {last})")
